@@ -1,0 +1,312 @@
+name: main
+
+networks:
+  arrs_default:
+    driver: bridge
+
+  trans_default:
+    driver: bridge
+
+  cd_default:
+    driver: bridge
+
+volumes:
+  jdownloader_output:
+
+services:
+  # --- Media Stack ---
+  audiobookshelf:
+    container_name: audiobookshelf
+    image: advplyr/audiobookshelf:latest
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - CONFIG_PATH=/config
+      - METADATA_PATH=/metadata
+    network_mode: bridge
+    ports:
+      - "13378:80"
+    volumes:
+      - /etc/localtime:/etc/localtime
+      - /home/mirod/docker/appdata/audiobookshelf:/config
+      - /media:/media
+
+  plexms:
+    container_name: plexms
+    image: plexinc/pms-docker:public
+    restart: unless-stopped
+    environment:
+      - PLEX_UID=${PUID}
+      - PLEX_GID=${PGID}
+      - TZ=${TZ}
+      - ADVERTISE_IP=http://192.168.1.125:32400/
+    devices:
+      - /dev/dri:/dev/dri
+    network_mode: bridge
+    ports:
+      - "3005:3005"
+      - "32400:32400"
+      - "32469:32469/udp"
+      - "8324:8324"
+    volumes:
+      - /dev/shm:/transcode
+      - /home/mirod/docker/appdata/plexms:/config
+      - /media:/media
+
+  jellyfin:
+    container_name: jellyfin
+    image: jellyfin/jellyfin:latest
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+    devices:
+      - /dev/dri:/dev/dri
+    network_mode: bridge
+    ports:
+      - "8096:8096"
+    volumes:
+      - /dev/shm:/transcode
+      - /home/mirod/docker/appdata/jellyfin/cache:/cache
+      - /home/mirod/docker/appdata/jellyfin/config:/config
+      - /media:/media
+
+  tautulli:
+    container_name: tautulli
+    image: linuxserver/tautulli:latest
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    network_mode: bridge
+    ports:
+      - "8181:8181"
+    volumes:
+      - "/home/mirod/docker/appdata/plexms/Library/Application Support/Plex Media Server/Logs:/logs:ro"
+      - /home/mirod/docker/appdata/tautulli/config:/config
+
+  # --- Automation ---
+  sonarr:
+    container_name: sonarr
+    image: lscr.io/linuxserver/sonarr:latest
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    networks:
+      - arrs_default
+    ports:
+      - "8989:8989"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /home/mirod/docker/appdata/sonarr:/config
+      - /media:/media
+
+  radarr:
+    container_name: radarr
+    image: lscr.io/linuxserver/radarr:nightly
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    networks:
+      - arrs_default
+    ports:
+      - "7878:7878"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /home/mirod/docker/appdata/radarr:/config
+      - /media:/media
+
+  prowlarr:
+    container_name: prowlarr
+    image: ghcr.io/linuxserver/prowlarr:develop
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    networks:
+      - arrs_default
+    ports:
+      - "9696:9696"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /home/mirod/docker/appdata/prowlarr:/config
+
+  bazarr:
+    container_name: bazarr
+    image: lscr.io/linuxserver/bazarr:latest
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    networks:
+      - arrs_default
+    ports:
+      - "6767:6767"
+    volumes:
+      - /home/mirod/docker/appdata/bazarr:/config
+      - /media:/media
+
+  # --- Downloads & VPN ---
+  transmission-vpn:
+    container_name: transmission-vpn
+    image: haugene/transmission-openvpn:latest
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - OPENVPN_PROVIDER=SURFSHARK
+      - OPENVPN_CONFIG=us-nyc.prod.surfshark.com_tcp
+      - OPENVPN_USERNAME=${VPN_USER}
+      - OPENVPN_PASSWORD=${VPN_PASS}
+      - LOCAL_NETWORK=192.168.0.0/16
+      - TRANSMISSION_DOWNLOAD_DIR=/media/storage3/downloads/torrents
+      - TRANSMISSION_INCOMPLETE_DIR=/media/storage3/downloads/torrents/incomplete
+      - TRANSMISSION_WATCH_DIR=/media/storage3/downloads/torrents
+    networks:
+      - trans_default
+    ports:
+      - "9090:9091"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /home/mirod/docker/appdata/transmission-vpn/config:/config
+      - /home/mirod/docker/appdata/transmission-vpn/data:/data
+      - /media:/media
+
+  jdownloader:
+    container_name: jdownloader
+    image: jlesage/jdownloader-2:latest
+    restart: unless-stopped
+    environment:
+      - USER_ID=${PUID}
+      - GROUP_ID=${PGID}
+      - WEB_LISTENING_PORT=5800
+      - VNC_LISTENING_PORT=5900
+    network_mode: bridge
+    ports:
+      - "5800:5800"
+    volumes:
+      - /home/mirod/docker/appdata/jdownloader/config:/config
+      - /home/mirod/docker/appdata/jdownloader/data:/data
+      - /media:/media
+      - jdownloader_output:/output
+
+  # --- Infrastructure & Utilities ---
+  docker-gc:
+    container_name: docker-gc
+    image: clockworksoul/docker-gc-cron:latest
+    restart: unless-stopped
+    environment:
+      - CLEAN_UP_VOLUMES=1
+      - TZ=${TZ}
+      - CRON=0 0 0 * * ?
+      - FORCE_IMAGE_REMOVAL=1
+    network_mode: bridge
+    volumes:
+      - /home/mirod/docker/appdata/docker-gc/docker-gc-exclude:/etc/docker-gc-exclude
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  dockhand:
+    container_name: dockhand
+    image: fnsys/dockhand:latest
+    restart: unless-stopped
+    environment:
+      - PUID=1001
+      - PGID=1001
+      - PORT=3000
+    network_mode: bridge
+    ports:
+      - "3000:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/mirod/docker/appdata/dockhand:/app/data
+      - /home/mirod/docker/main:/app/data/stacks/main
+      - /home/mirod/docker/immich:/app/data/stacks/immich
+      - /home/mirod/docker/nextcloud:/app/data/stacks/nextcloud
+
+  nginx-proxy-manager:
+    container_name: nginx-proxy-manager
+    image: jc21/nginx-proxy-manager:latest
+    restart: unless-stopped
+    environment:
+      - DISABLE_IPV6=true
+      - DB_SQLITE_FILE=/config/database.sqlite
+    network_mode: bridge
+    ports:
+      - "443:443"
+      - "80:80"
+      - "81:81"
+    volumes:
+      - /home/mirod/docker/appdata/npm/config:/config
+      - /home/mirod/docker/appdata/npm/data:/data
+      - /home/mirod/docker/appdata/npm/letsencrypt:/etc/letsencrypt
+      - /home/mirod/docker/appdata/npm/servers:/etc/nginx/servers
+
+  homeassistant:
+    container_name: homeassistant
+    image: linuxserver/homeassistant:latest
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - /home/mirod/docker/appdata/homeassistant/config:/config
+      - /run/dbus:/run/dbus:ro
+
+  heimdall:
+    container_name: heimdall
+    image: lscr.io/linuxserver/heimdall:latest
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    network_mode: bridge
+    ports:
+      - "83:80"
+    volumes:
+      - /home/mirod/docker/appdata/heimdall:/config
+
+  # --- Linked Pair (Change Detection) ---
+  change-detection:
+    container_name: change-detection
+    image: ghcr.io/dgtlmoon/changedetection.io:latest
+    restart: unless-stopped
+    depends_on:
+      - playwright-chrome
+    environment:
+      - BASE_URL=http://192.168.1.125:5000
+      - PLAYWRIGHT_DRIVER_URL=ws://playwright-chrome:3000/?stealth=1&--disable-web-security=true
+    networks:
+      - cd_default
+    ports:
+      - "5000:5000"
+    volumes:
+      - /home/mirod/docker/appdata/change-detection/data:/datastore
+      - /home/mirod/docker/appdata/change-detection:/config
+
+  playwright-chrome:
+    container_name: playwright-chrome
+    image: dgtlmoon/sockpuppetbrowser:latest
+    restart: unless-stopped
+    hostname: playwright-chrome
+    networks:
+      - cd_default
+    environment:
+      - SCREEN_WIDTH=1920
+      - SCREEN_HEIGHT=1080
+      - SCREEN_DEPTH=16
