@@ -1,0 +1,60 @@
+services:
+  db:
+    image: mariadb:10.6
+    container_name: nextcloud-db
+    restart: always
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    volumes:
+      # Database storage (Keep this internal/managed for speed)
+      - nextcloud_db:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+
+  redis:
+    image: redis:alpine
+    container_name: nextcloud-redis
+    restart: always
+    volumes:
+      - nextcloud_redis:/data
+
+  app:
+    image: nextcloud:latest
+    container_name: nextcloud
+    restart: always
+    ports:
+      - 8080:80
+    depends_on:
+      - db
+      - redis
+    environment:
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_HOST=db
+      - REDIS_HOST=redis
+      - NEXTCLOUD_TRUSTED_DOMAINS=${NEXTCLOUD_TRUSTED_DOMAINS}
+    volumes:
+      # App Code & Config (Lives in Docker Volume)
+      - nextcloud_html:/var/www/html
+      # USER DATA (Lives on your Hard Drive) <--- The Critical Change
+      - /mnt/family_media/nextcloud:/var/www/html/data
+
+  cron:
+    image: nextcloud:latest
+    container_name: nextcloud-cron
+    restart: always
+    volumes:
+      - nextcloud_html:/var/www/html
+      - /mnt/family_media/nextcloud:/var/www/html/data
+    entrypoint: /cron.sh
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  nextcloud_db:
+  nextcloud_html:
+  nextcloud_redis:
